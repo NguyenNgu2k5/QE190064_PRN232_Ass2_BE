@@ -55,4 +55,4 @@ Apply `database/002_auth.sql` to an existing AS1 schema. Apply `001_initial.sql`
 
 Swagger remains available at `/swagger`; `/api/tags` is an existing database-backed health-check URL. `.dockerignore` excludes local environment files and production appsettings from the build context. Docker builds do not need database credentials or a JWT secret.
 
-See [DEPLOYMENT.md](DEPLOYMENT.md) for the full PowerShell and Render steps. Online deployment and live credentials still require the owner's Render/Vercel accounts.
+Live API: [Render AS2](https://qe190064-prn232-ass2-be.onrender.com/api/tags); [Swagger](https://qe190064-prn232-ass2-be.onrender.com/swagger). Deployment verified on 13 October 2026; database AS2 is separate from AS1 inside the existing Singapore PostgreSQL Free instance. That instance expires at 01:53 Vietnam time on 29 October 2026. Grading credentials are in the private submission document. See [DEPLOYMENT.md](DEPLOYMENT.md) for setup and recovery instructions.

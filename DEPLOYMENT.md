@@ -1,6 +1,8 @@
 # Deploy TaskTrack AS2 lên Render
 
-Cấu hình dành cho source backend AS2 hiện tại, đối chiếu tài liệu Render ngày 13/10/2026. Chưa có dịch vụ/database production; các giá trị `YOUR_*` cần thay trước khi chạy. Đã có Dockerfile .NET 8; không cần thêm web server hoặc thay kiến trúc.
+Cấu hình dành cho source backend AS2, đối chiếu tài liệu Render ngày 13/10/2026. Backend đã chạy tại [Render AS2](https://qe190064-prn232-ass2-be.onrender.com), [Swagger](https://qe190064-prn232-ass2-be.onrender.com/swagger); frontend tại [Vercel AS2](https://qe190064-prn232-ass2-fe.vercel.app). Các giá trị `YOUR_*` bên dưới là placeholder khi tạo môi trường mới.
+
+Database `qe190064_prn232_ass2` đã được tạo riêng trong PostgreSQL Free hiện có, cùng region Singapore; database AS1 giữ nguyên. Instance này hết hạn **29/10/2026 lúc 01:53 giờ Việt Nam**. Admin đã seed bằng CLI, Staff đã Register qua UI live. Credentials giữ trong hồ sơ nộp riêng, không lưu trong Git. Không chạy lại 001 trên database đã có bảng.
 
 ## 1. Chọn database và dịch vụ
 
