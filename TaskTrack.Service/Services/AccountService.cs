@@ -28,18 +28,27 @@ public class AccountService(AccountRepository repo, IPasswordHasher<SystemAccoun
     public async Task<IReadOnlyList<AccountResponse>> GetAllAsync(CancellationToken ct) => (await repo.GetAllAsync(ct)).Select(Map).ToList();
     public async Task<AccountResponse> GetAsync(int id, CancellationToken ct) => Map(await repo.FindAsync(id, ct) ?? throw new KeyNotFoundException("Account not found."));
 
-    public async Task<AccountResponse> UpdateAsync(int id, AccountUpdateRequest request, CancellationToken ct)
+    public async Task<AccountResponse> UpdateAsync(int id, AccountUpdateRequest request, int actingAccountId, CancellationToken ct)
     {
         if (request.FullName is null && request.Role is null) throw new InvalidOperationException("Provide a full name or role.");
+        await using var transaction = await repo.BeginAccountChangeAsync(ct);
+        var account = await repo.ReadAsync(id, ct) ?? throw new KeyNotFoundException("Account not found.");
+        if (request.Role is not null && request.Role != account.Role)
+        {
+            if (id == actingAccountId) throw new AccountConflictException("You cannot change your own role.");
+            if (account.Role == 1 && await repo.CountAdminsAsync(ct) <= 1) throw new AccountConflictException("At least one Admin must remain.");
+        }
         if (await repo.UpdateAsync(id, request.FullName is null ? null : Name(request.FullName), request.Role, ct) == 0) throw new KeyNotFoundException("Account not found.");
-        return Map((await repo.ReadAsync(id, ct))!);
+        var updated = Map((await repo.ReadAsync(id, ct))!);
+        await transaction.CommitAsync(ct);
+        return updated;
     }
 
     public async Task<AccountResponse> UpdateProfileAsync(int id, ProfileRequest request, CancellationToken ct)
     {
         if (request.FullName is null && request.NewPassword is null) throw new InvalidOperationException("Provide a full name or new password.");
         var name = request.FullName is null ? null : Name(request.FullName);
-        if (request.NewPassword is null) return await UpdateAsync(id, new AccountUpdateRequest { FullName = name }, ct);
+        if (request.NewPassword is null) return await UpdateAsync(id, new AccountUpdateRequest { FullName = name }, id, ct);
         var account = await repo.ReadAsync(id, ct) ?? throw new KeyNotFoundException("Account not found.");
         if (string.IsNullOrEmpty(request.CurrentPassword) || hasher.VerifyHashedPassword(account, account.PasswordHash, request.CurrentPassword) == PasswordVerificationResult.Failed)
             throw new InvalidOperationException("Current password is incorrect.");
@@ -50,10 +59,13 @@ public class AccountService(AccountRepository repo, IPasswordHasher<SystemAccoun
 
     public async Task DeleteAsync(int id, CancellationToken ct)
     {
-        var account = await repo.FindAsync(id, ct) ?? throw new KeyNotFoundException("Account not found.");
+        await using var transaction = await repo.BeginAccountChangeAsync(ct);
+        var account = await repo.ReadAsync(id, ct) ?? throw new KeyNotFoundException("Account not found.");
+        if (account.Role == 1 && await repo.CountAdminsAsync(ct) <= 1) throw new AccountConflictException("At least one Admin must remain.");
         if (await repo.HasTasksAsync(id, ct)) throw new AccountConflictException("This account created tasks and cannot be deleted, including tasks that were soft-deleted.");
-        repo.Remove(account);
+        repo.Remove((await repo.FindAsync(id, ct))!);
         await repo.SaveAsync(ct);
+        await transaction.CommitAsync(ct);
     }
 
     public async Task SeedAdminAsync(string name, string email, string password, CancellationToken ct)

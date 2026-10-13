@@ -36,7 +36,7 @@ API: `http://localhost:5102/api`; Swagger: `http://localhost:5102/swagger`. The 
 - `PUT /api/auth/profile`: authenticated own-name update or password change with CurrentPassword/NewPassword. Email and Role cannot be changed here; password changes revoke existing tokens.
 - All AS1 GET endpoints stay public. POST/PUT/DELETE require authentication.
 - `GET /api/accounts`, `GET /api/accounts/{id}`, `PUT /api/accounts/{id}`, `DELETE /api/accounts/{id}` require Admin; Staff receives 403.
-- Account update accepts FullName and/or Role. Account deletion returns 409 when the account created any task, including a soft-deleted task.
+- Account update accepts FullName and/or Role. The acting account comes from the verified JWT; changing your own role returns 409, while changing your own name or submitting the unchanged role remains allowed. Demoting or deleting the last Admin also returns 409. Account changes acquire a PostgreSQL transaction/table lock before reading roles and counting Admins, so concurrent demotions/deletions cannot remove all Admins. Account deletion still returns 409 when the account created any task, including a soft-deleted task.
 - Task CreatedByID and UpdatedByID are derived from JWT; clients cannot override them. Update and soft delete record the editor while preserving the creator. Linked records prevent other entity deletion.
 
 ## Verification
@@ -62,7 +62,7 @@ $env:STAFF_PASSWORD = 'YOUR_TEST_STAFF_PASSWORD'
 dotnet test tests/TaskTrack.IntegrationTests.csproj --configuration Release --no-build --no-restore
 ```
 
-The 17 API integration tests are written in C# with xUnit, HttpClient and Npgsql; the backend needs no Node.js or standalone SQL setup files. The test API's database/JWT settings and the test credentials must match the environment above. Tests refuse remote hosts, database names not ending in `_ass2`, and the main local database `qe190064_prn232_ass2`. Each test creates its own fixtures and removes only their IDs; no fixed AS1 sample IDs are required. The rollback test injects a database failure only for its own task. Run this suite against an isolated local test instance, never production.
+The 18 API integration tests and five account-protection cases are written in C# with xUnit, HttpClient, EF Core and Npgsql; the backend needs no Node.js or standalone SQL setup files. The test API's database/JWT settings and the test credentials must match the environment above. Tests refuse remote hosts, database names not ending in `_ass2`, and the main local database `qe190064_prn232_ass2`. Each API test creates its own fixtures and removes only their IDs; no fixed AS1 sample IDs are required. Account-protection tests create and remove private schemas to check self-role changes, the last Admin and concurrent demotions/deletions. The rollback test injects a database failure only for its own task. Run this suite against an isolated local test instance, never production.
 
 ## Render deployment
 

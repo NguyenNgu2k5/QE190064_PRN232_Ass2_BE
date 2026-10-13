@@ -418,6 +418,25 @@ public class ApiIntegrationTests : IAsyncLifetime
         Assert.Equal(work.OwnerId, Convert.ToInt32(await SqlAsync("SELECT \"CreatedByID\" FROM \"Task\" WHERE \"TaskID\"=$1", new NpgsqlParameter { Value = work.TaskId })));
     }
 
+    [Fact]
+    public async Task AdminCannotChangeOwnRoleEvenWithAnotherAdminAndCannotDeleteLastAdmin()
+    {
+        var own = admin.GetProperty("account");
+        var ownId = own.GetProperty("accountId").GetInt32();
+        var other = await RegisterAsync(prefix + "otheradmin@example.com");
+        var otherId = other.GetProperty("accountId").GetInt32();
+        await RequestAsync("/accounts/" + otherId, "PUT", new { role = 1 }, AdminToken);
+        await RequestAsync("/accounts/" + ownId, "PUT", new { fullName = "Must not persist", role = 0, actingAccountId = otherId }, AdminToken, 409);
+        var unchanged = await RequestAsync("/accounts/" + ownId, token: AdminToken);
+        Assert.Equal(1, unchanged.GetProperty("role").GetInt32());
+        Assert.Equal(own.GetProperty("fullName").GetString(), unchanged.GetProperty("fullName").GetString());
+        await RequestAsync("/accounts/" + ownId, "PUT", new { fullName = own.GetProperty("fullName").GetString() }, AdminToken);
+        await RequestAsync("/accounts/" + otherId, "DELETE", token: AdminToken, status: 204);
+        Assert.Single((await RequestAsync("/accounts", token: AdminToken)).EnumerateArray(), item => item.GetProperty("role").GetInt32() == 1);
+        await RequestAsync("/accounts/" + ownId, "DELETE", token: AdminToken, status: 409);
+        await RequestAsync("/auth/me", token: AdminToken);
+    }
+
     private Task<JsonElement> LoginAsync(string email, string password) => RequestAsync("/auth/login", "POST", new { email, password });
 
     private async Task<JsonElement> RegisterAsync(string email)

@@ -1,10 +1,24 @@
 using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore.Storage;
 using TaskTrack.Repo.Models;
 
 namespace TaskTrack.Repo.Repositories;
 
 public class AccountRepository(TaskManagementDbContext db)
 {
+    public async Task<IDbContextTransaction> BeginAccountChangeAsync(CancellationToken ct)
+    {
+        var transaction = await db.Database.BeginTransactionAsync(ct);
+        try
+        {
+            // Serialize account changes so concurrent demotions/deletions cannot remove all Admins.
+            await db.Database.ExecuteSqlRawAsync("LOCK TABLE \"SystemAccount\" IN SHARE ROW EXCLUSIVE MODE", ct);
+            return transaction;
+        }
+        catch { await transaction.DisposeAsync(); throw; }
+    }
+
+    public Task<int> CountAdminsAsync(CancellationToken ct) => db.Accounts.CountAsync(x => x.Role == 1, ct);
     public Task<List<SystemAccount>> GetAllAsync(CancellationToken ct) => db.Accounts.AsNoTracking().OrderBy(x => x.AccountId).ToListAsync(ct);
     public Task<SystemAccount?> FindAsync(int id, CancellationToken ct) => db.Accounts.FirstOrDefaultAsync(x => x.AccountId == id, ct);
     public Task<SystemAccount?> FindByEmailAsync(string email, CancellationToken ct) => db.Accounts.FirstOrDefaultAsync(x => x.Email.ToLower() == email, ct);
