@@ -1,4 +1,7 @@
 <Solution>
+  <Folder Name="/tests/">
+    <Project Path="tests/TaskTrack.IntegrationTests.csproj" />
+  </Folder>
   <Project Path="TaskTrack.API/TaskTrack.API.csproj" />
   <Project Path="TaskTrack.Repo/TaskTrack.Repo.csproj" />
   <Project Path="TaskTrack.Service/TaskTrack.Service.csproj" />

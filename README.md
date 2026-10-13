@@ -34,18 +34,27 @@ API: `http://localhost:5102/api`; Swagger: `http://localhost:5102/swagger`. The 
 
 ## Verification
 
+Start a separate local API on port 5103 against an empty test database such as `tasktrack_test_ass2`. Apply both schema scripts to that database and configure `ConnectionStrings__DefaultConnection`, `JWT_SECRET`, `ADMIN_EMAIL` and `ADMIN_PASSWORD` for the test instance. After building, seed and run it in its own terminal:
+
 ```powershell
-dotnet restore TaskTrack.API/TaskTrack.API.csproj
-dotnet build TaskTrack.API/TaskTrack.API.csproj --configuration Release --no-restore
-$env:API_BASE_URL = 'http://127.0.0.1:5102/api'
-$env:TEST_DATABASE_URL = 'postgresql://YOUR_USER:YOUR_PASSWORD@127.0.0.1:5432/qe190064_prn232_ass2'
+dotnet TaskTrack.API/bin/Release/net8.0/TaskTrack.API.dll --seed-admin
+dotnet TaskTrack.API/bin/Release/net8.0/TaskTrack.API.dll --urls http://127.0.0.1:5103
+```
+
+In another terminal, set the matching test variables and run:
+
+```powershell
+dotnet restore QE190064_PRN232_Ass1_BE.sln
+dotnet build QE190064_PRN232_Ass1_BE.sln --configuration Release --no-restore
+$env:API_BASE_URL = 'http://127.0.0.1:5103/api'
+$env:TEST_DATABASE_URL = 'postgresql://YOUR_USER:YOUR_PASSWORD@127.0.0.1:5432/tasktrack_test_ass2'
 $env:STAFF_EMAIL = 'YOUR_TEST_STAFF_EMAIL'
 $env:STAFF_PASSWORD = 'YOUR_TEST_STAFF_PASSWORD'
 # ADMIN_EMAIL, ADMIN_PASSWORD and JWT_SECRET must match the running test API.
-node --test tests/api.integration.test.mjs
+dotnet test tests/TaskTrack.IntegrationTests.csproj --configuration Release --no-build --no-restore
 ```
 
-Node 24 and PostgreSQL `psql` are required for integration tests. Set `PSQL_EXE` if psql is outside PATH. Tests reject a non-local database or a database name not ending in `_ass2`. They create their own fixtures, exercise an injected database failure, and remove only their fixtures. Use an isolated test instance with no other writers.
+The 11 API integration tests are written in C# with xUnit, HttpClient and Npgsql; the backend needs no Node.js. Prepare a separate local database such as `tasktrack_test_ass2` with both schema scripts, seed its Admin and run a separate API instance against that database on port 5103 before testing. The test API's database/JWT settings and the test credentials must match the environment above. Tests refuse remote hosts, database names not ending in `_ass2`, and the main local database `qe190064_prn232_ass2`. Each test creates its own fixtures and removes only their IDs; the rollback test injects a database failure only for its own task. Run this suite against an isolated local test instance, never production.
 
 ## Render deployment
 

@@ -6,3 +6,4 @@
 .env*
 **/appsettings.Production.json
 **/*.user
+tests/

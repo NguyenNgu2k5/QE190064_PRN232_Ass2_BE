@@ -29,9 +29,6 @@ jobs:
       - uses: actions/setup-dotnet@v4
         with:
           dotnet-version: 8.0.x
-      - uses: actions/setup-node@v4
-        with:
-          node-version: 24
       - run: dotnet restore QE190064_PRN232_Ass1_BE.sln
       - run: dotnet build QE190064_PRN232_Ass1_BE.sln --configuration Release --no-restore
       - name: Test API against isolated PostgreSQL
@@ -60,4 +57,4 @@ jobs:
             if curl --silent --fail "$API_BASE_URL/departments" > /dev/null; then break; fi
             sleep 1
           done
-          node --test tests/api.integration.test.mjs
+          dotnet test tests/TaskTrack.IntegrationTests.csproj --configuration Release --no-build --no-restore
