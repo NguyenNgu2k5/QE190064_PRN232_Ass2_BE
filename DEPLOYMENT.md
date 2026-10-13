@@ -2,7 +2,7 @@
 
 Cấu hình dành cho source backend AS2, đối chiếu tài liệu Render ngày 13/10/2026. Backend đã chạy tại [Render AS2](https://qe190064-prn232-ass2-be.onrender.com), [Swagger](https://qe190064-prn232-ass2-be.onrender.com/swagger); frontend tại [Vercel AS2](https://qe190064-prn232-ass2-fe.vercel.app). Các giá trị `YOUR_*` bên dưới là placeholder khi tạo môi trường mới.
 
-Database `qe190064_prn232_ass2` đã được tạo riêng trong PostgreSQL Free hiện có, cùng region Singapore; database AS1 giữ nguyên. Instance này hết hạn **29/10/2026 lúc 01:53 giờ Việt Nam**. Admin đã seed bằng CLI, Staff đã Register qua UI live. Credentials giữ trong hồ sơ nộp riêng, không lưu trong Git. Không chạy lại 001 trên database đã có bảng.
+Database `qe190064_prn232_ass2` đã được tạo riêng trong PostgreSQL Free hiện có, cùng region Singapore; database AS1 giữ nguyên. Instance này hết hạn **29/10/2026 lúc 01:53 giờ Việt Nam**. Admin đã seed bằng CLI, Staff đã Register qua UI live. Credentials giữ trong hồ sơ nộp riêng, không lưu trong Git. Database hiện có không cần khởi tạo lại.
 
 ## 1. Chọn database và dịch vụ
 
@@ -12,37 +12,25 @@ Database `qe190064_prn232_ass2` đã được tạo riêng trong PostgreSQL Free
 
 Render hỗ trợ build Dockerfile từ repo; backend .NET dùng Docker runtime. [Docker on Render](https://render.com/docs/docker).
 
-## 2. Khởi tạo hoặc nâng cấp schema
+## 2. Database đã có schema hoặc database trống mới
 
-Mở terminal PowerShell từ thư mục backend. Điền External Database URL riêng trong terminal, dùng TLS; không dùng Internal URL từ máy local. Render phân biệt hai URL theo nơi kết nối. [Kết nối Render PostgreSQL](https://render.com/docs/postgresql-creating-connecting).
+Bản live AS2 đã có đủ sáu bảng và dữ liệu. Chỉ redeploy code; không chạy setup lại. Hai script SQL trước đây đã bỏ khỏi repo để giữ backend gọn như AS1. Bản lịch sử nằm trong Git và bản sao private ngoài repo.
 
-```powershell
-Set-Location 'E:\FPT_Uni-Software_Document-Tools\Fall2026\PRN232\Project\Ass2\QE190064_PRN232_Ass2_BE'
-$pgExe = 'E:\Database\PostgreSQL\bin\psql.exe'
-$productionDatabaseUrl = 'postgresql://YOUR_USER:YOUR_PASSWORD@YOUR_EXTERNAL_HOST:5432/YOUR_AS2_DB?sslmode=require'
-
-# Đọc tên database/host trước khi chạy script thay đổi schema.
-& $pgExe $productionDatabaseUrl -X -v ON_ERROR_STOP=1 -c 'SELECT current_database(), inet_server_addr();'
-if ($LASTEXITCODE -ne 0) { throw 'Database connection failed.' }
-& $pgExe $productionDatabaseUrl -X -v ON_ERROR_STOP=1 -c "SELECT tablename FROM pg_tables WHERE schemaname='public' ORDER BY tablename;"
-if ($LASTEXITCODE -ne 0) { throw 'Schema inspection failed.' }
-```
-
-Nếu **database AS2 mới và trống**, chạy 001 rồi 002:
+Nếu tạo một database AS2 mới, tạo database trống bằng công cụ PostgreSQL/Render trước, đặt tên kết thúc bằng `_ass2`, rồi cấu hình riêng:
 
 ```powershell
-& $pgExe $productionDatabaseUrl -X -v ON_ERROR_STOP=1 -f database/001_initial.sql
-if ($LASTEXITCODE -ne 0) { throw 'Initial schema failed; stop here.' }
-& $pgExe $productionDatabaseUrl -X -v ON_ERROR_STOP=1 -f database/002_auth.sql
-if ($LASTEXITCODE -ne 0) { throw 'Auth schema failed; stop here.' }
+Remove-Item Env:ConnectionStrings__DefaultConnection -ErrorAction SilentlyContinue
+$productionDatabaseUrl = 'postgresql://YOUR_USER:YOUR_PASSWORD@YOUR_EXTERNAL_HOST:5432/YOUR_AS2_DB_ass2?sslmode=require'
+$env:DATABASE_URL = $productionDatabaseUrl
+$env:JWT_SECRET = 'YOUR_RANDOM_SECRET_WITH_AT_LEAST_32_UTF8_BYTES'
+$env:ASPNETCORE_ENVIRONMENT = 'Production'
+dotnet run --project TaskTrack.API --configuration Release --no-launch-profile -- --init-db
+if ($LASTEXITCODE -ne 0) { throw 'Database initialization failed; stop here.' }
 ```
 
-Nếu database đã có schema AS1, sao lưu trước, kiểm tra trùng email/tag theo quy tắc normalize và chỉ chạy **002**. Script 002 thêm SystemAccount, ownership task, các index và chuyển timestamp UTC; chạy lại không reset dữ liệu. Nếu có tag trùng, xử lý dữ liệu có chủ đích trước khi tạo unique index; không tự xóa bản ghi.
+`--init-db` tạo schema từ model EF Core C# trong một transaction, không chèn dữ liệu mẫu AS1. Nó từ chối database có bảng và tên không kết thúc bằng `_ass2`; API startup thông thường không thay đổi schema. Lệnh này không nâng cấp một database AS1 cũ. Schema AS2 live đã được cập nhật trong lượt triển khai trước; khi cần dữ liệu hiện có ở môi trường mới, restore backup riêng thay vì khởi tạo lại.
 
-```powershell
-& $pgExe $productionDatabaseUrl -X -v ON_ERROR_STOP=1 -f database/002_auth.sql
-if ($LASTEXITCODE -ne 0) { throw 'Auth schema failed; stop here.' }
-```
+Đề yêu cầu SystemAccount và seed Admin trực tiếp bằng migration/SQL; không yêu cầu hai file SQL riêng trong repository. Backend dùng EF Core có sẵn để tạo bảng, sau đó dùng CLI seed bên dưới để ghi Admin trực tiếp vào database. Không có endpoint setup hoặc seed public.
 
 ## 3. Seed Admin trực tiếp database
 

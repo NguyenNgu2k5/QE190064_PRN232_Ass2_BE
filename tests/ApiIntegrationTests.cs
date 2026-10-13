@@ -84,10 +84,11 @@ public class ApiIntegrationTests : IAsyncLifetime
     [Fact]
     public async Task PublicReadsKeepAs1RoutesAndRealProjectCounts()
     {
-        foreach (var path in new[] { "/departments", "/departments/1", "/departments/search?name=Engineering", "/projects", "/projects/1", "/projects/department/1", "/projects/search?status=1", "/tasks", "/tasks/1", "/tasks/project/1", "/tasks/search?priority=0", "/tags" })
+        var work = await CreateWorkAsync();
+        foreach (var path in new[] { "/departments", "/departments/" + work.DepartmentId, "/departments/search?name=" + prefix, "/projects", "/projects/" + work.ProjectId, "/projects/department/" + work.DepartmentId, "/projects/search?status=1", "/tasks", "/tasks/" + work.TaskId, "/tasks/project/" + work.ProjectId, "/tasks/search?priority=0", "/tags" })
             await RequestAsync(path);
         var departments = await RequestAsync("/departments");
-        Assert.NotEmpty(departments.EnumerateArray().Single(item => item.GetProperty("departmentId").GetInt32() == 1).GetProperty("projects").EnumerateArray());
+        Assert.Contains(departments.EnumerateArray().Single(item => item.GetProperty("departmentId").GetInt32() == work.DepartmentId).GetProperty("projects").EnumerateArray(), project => project.GetProperty("projectId").GetInt32() == work.ProjectId);
         await RequestAsync("/tasks/2147483647", status: 404);
     }
 

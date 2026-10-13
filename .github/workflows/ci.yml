@@ -44,10 +44,8 @@ jobs:
           export JWT_SECRET="$(openssl rand -hex 32)"
           export ADMIN_PASSWORD="$(openssl rand -hex 16)"
           export STAFF_PASSWORD="$(openssl rand -hex 16)"
-          psql "$TEST_DATABASE_URL" -v ON_ERROR_STOP=1 -f database/001_initial.sql
-          psql "$TEST_DATABASE_URL" -v ON_ERROR_STOP=1 -f database/002_auth.sql
-          psql "$TEST_DATABASE_URL" -v ON_ERROR_STOP=1 -f database/002_auth.sql
           api_dll=TaskTrack.API/bin/Release/net8.0/TaskTrack.API.dll
+          dotnet "$api_dll" --init-db
           dotnet "$api_dll" --seed-admin
           dotnet "$api_dll" --seed-admin
           dotnet "$api_dll" --urls http://127.0.0.1:5102 > api-test.log 2>&1 &

@@ -61,6 +61,23 @@ var origins = (builder.Configuration["CORS_ORIGINS"] ?? "http://localhost:3012")
 builder.Services.AddCors(options => options.AddPolicy("frontend", policy => policy.WithOrigins(origins).AllowAnyHeader().AllowAnyMethod()));
 
 var app = builder.Build();
+// shortcut: initialize empty databases only; add EF migrations when future schema upgrades are needed.
+if (args.Contains("--init-db"))
+{
+    using var scope = app.Services.CreateScope();
+    var db = scope.ServiceProvider.GetRequiredService<TaskManagementDbContext>();
+    if (!db.Database.GetDbConnection().Database.EndsWith("_ass2", StringComparison.Ordinal))
+        throw new InvalidOperationException("Initialize only a separate database whose name ends with _ass2.");
+    var tables = await db.Database.SqlQueryRaw<int>("SELECT COUNT(*)::integer AS \"Value\" FROM information_schema.tables WHERE table_schema = current_schema()").SingleAsync();
+    if (tables != 0) throw new InvalidOperationException("Database already has tables. Use the existing schema; initialization was refused without changing data.");
+    await using var transaction = await db.Database.BeginTransactionAsync();
+    await db.Database.ExecuteSqlRawAsync(db.Database.GenerateCreateScript());
+    // Expression indexes keep concurrent email/tag writes unique after trimming and ignoring case.
+    await db.Database.ExecuteSqlRawAsync("CREATE UNIQUE INDEX \"UX_SystemAccount_Email\" ON \"SystemAccount\" (LOWER(BTRIM(\"Email\"))); CREATE UNIQUE INDEX \"UX_Tag_Name_Normalized\" ON \"Tag\" (LOWER(BTRIM(\"TagName\")));");
+    await transaction.CommitAsync();
+    Console.WriteLine("Empty AS2 database initialized from the EF Core model. No sample data was inserted.");
+    return;
+}
 if (args.Contains("--seed-admin"))
 {
     using var scope = app.Services.CreateScope();
