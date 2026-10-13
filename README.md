@@ -21,7 +21,7 @@ dotnet run --project TaskTrack.API
 
 Admin seed writes a PBKDF2 hash directly to PostgreSQL, is idempotent, and never promotes an existing Staff account automatically. Register only creates Staff. No real credentials belong in source.
 
-`--init-db` creates the six tables from the existing EF Core C# model, with role validation, restricted foreign keys and normalized unique email/tag indexes. It accepts only a database name ending in `_ass2`, refuses any existing tables, and performs schema creation in one transaction. It does not copy AS1 sample data or upgrade an existing database. Normal API startup does not change the schema. Restore a private backup when you need the existing data.
+`--init-db` creates the six tables from the existing EF Core C# model, with role validation, restricted foreign keys and normalized unique email/tag indexes. It accepts only a database name ending in `_ass2`, refuses any existing tables, and performs schema creation in one transaction. It does not copy AS1 sample data. To upgrade the previous AS2 schema, run `dotnet run --project TaskTrack.API -- --upgrade-db` once before starting this version; the additive upgrade is transactional and idempotent. Normal API startup does not change the schema. Restore a private backup when you need the existing data.
 
 API: `http://localhost:5102/api`; Swagger: `http://localhost:5102/swagger`. The frontend runs on port 3012. Configure `CORS_ORIGINS` for the actual frontend origins. `DATABASE_URL` is supported when a connection string is absent. AS2 has its own User Secrets ID.
 
@@ -30,11 +30,14 @@ API: `http://localhost:5102/api`; Swagger: `http://localhost:5102/swagger`. The 
 - `POST /api/auth/register`: FullName, Email, Password → 201; normalized duplicate email → 409.
 - `POST /api/auth/login`: Email, Password → signed token, expiry and safe account data; bad credentials → 401.
 - `GET /api/auth/me`: authenticated session verification.
-- JWT: AccountID, Email, Role, FullName and exp; expires after 24 hours. Deleted accounts and changed roles invalidate old tokens.
+- JWT: AccountID, Email, Role, FullName, TokenVersion and exp; access expires after 15 minutes. Deleted accounts, changed roles, password changes and logout invalidate old sessions.
+- `POST /api/auth/refresh`: rotates the signed refresh token; only its SHA-256 hash is stored. Refresh expires after seven days from login. Reusing a token revokes its family. One active refresh session per account; a new login replaces the previous refresh session.
+- `POST /api/auth/logout`: takes the refresh token and revokes that session; returns 204, including repeated logout.
+- `PUT /api/auth/profile`: authenticated own-name update or password change with CurrentPassword/NewPassword. Email and Role cannot be changed here; password changes revoke existing tokens.
 - All AS1 GET endpoints stay public. POST/PUT/DELETE require authentication.
 - `GET /api/accounts`, `GET /api/accounts/{id}`, `PUT /api/accounts/{id}`, `DELETE /api/accounts/{id}` require Admin; Staff receives 403.
 - Account update accepts FullName and/or Role. Account deletion returns 409 when the account created any task, including a soft-deleted task.
-- Task creator is derived from JWT; the client cannot override it. Tasks use soft deletion. Linked records prevent other entity deletion.
+- Task CreatedByID and UpdatedByID are derived from JWT; clients cannot override them. Update and soft delete record the editor while preserving the creator. Linked records prevent other entity deletion.
 
 ## Verification
 
@@ -59,13 +62,13 @@ $env:STAFF_PASSWORD = 'YOUR_TEST_STAFF_PASSWORD'
 dotnet test tests/TaskTrack.IntegrationTests.csproj --configuration Release --no-build --no-restore
 ```
 
-The 11 API integration tests are written in C# with xUnit, HttpClient and Npgsql; the backend needs no Node.js or standalone SQL setup files. The test API's database/JWT settings and the test credentials must match the environment above. Tests refuse remote hosts, database names not ending in `_ass2`, and the main local database `qe190064_prn232_ass2`. Each test creates its own fixtures and removes only their IDs; no fixed AS1 sample IDs are required. The rollback test injects a database failure only for its own task. Run this suite against an isolated local test instance, never production.
+The 17 API integration tests are written in C# with xUnit, HttpClient and Npgsql; the backend needs no Node.js or standalone SQL setup files. The test API's database/JWT settings and the test credentials must match the environment above. Tests refuse remote hosts, database names not ending in `_ass2`, and the main local database `qe190064_prn232_ass2`. Each test creates its own fixtures and removes only their IDs; no fixed AS1 sample IDs are required. The rollback test injects a database failure only for its own task. Run this suite against an isolated local test instance, never production.
 
 ## Render deployment
 
 Use the existing Dockerfile: Docker runtime, repository root as build context, and port 8080. Set `DATABASE_URL`, `JWT_SECRET`, `CORS_ORIGINS` and `ASPNETCORE_ENVIRONMENT=Production` in Render. Use the database internal URL for a service in the same region; allow the exact HTTPS Vercel origin in CORS.
 
-The existing live AS2 database already has its schema and grading accounts; redeploy without rerunning setup. For a new, empty AS2 database, run `dotnet TaskTrack.API.dll --init-db`, then `dotnet TaskTrack.API.dll --seed-admin` with private environment variables. Both commands exit; keep the normal web-service startup command. Register Staff through the live frontend after deployment. The assignment requires adding SystemAccount via migration/ALTER TABLE and seeding Admin directly; the two former SQL setup files were an implementation choice, not required deliverables.
+The existing live AS2 database already has its schema and grading accounts; run the additive `--upgrade-db` command once for the previous AS2 schema, then redeploy without reinitializing or reseeding. For a new, empty AS2 database, run `dotnet TaskTrack.API.dll --init-db`, then `dotnet TaskTrack.API.dll --seed-admin` with private environment variables. Both commands exit; keep the normal web-service startup command. Register Staff through the live frontend after deployment. The assignment requires adding SystemAccount via migration/ALTER TABLE and seeding Admin directly; the two former SQL setup files were an implementation choice, not required deliverables.
 
 Swagger remains available at `/swagger`; `/api/tags` is an existing database-backed health-check URL. `.dockerignore` excludes local environment files and production appsettings from the build context. Docker builds do not need database credentials or a JWT secret.
 

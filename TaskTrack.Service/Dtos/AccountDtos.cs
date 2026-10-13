@@ -22,3 +22,15 @@ public class AccountUpdateRequest
 }
 
 public record AccountResponse(int AccountId, string FullName, string Email, short Role, DateTime CreatedDate);
+
+public class RefreshRequest
+{
+    [Required, StringLength(2048)] public string RefreshToken { get; set; } = string.Empty;
+}
+
+public class ProfileRequest
+{
+    [StringLength(100)] public string? FullName { get; set; }
+    [StringLength(128)] public string? CurrentPassword { get; set; }
+    [StringLength(128, MinimumLength = 8)] public string? NewPassword { get; set; }
+}

@@ -14,7 +14,7 @@ Render hỗ trợ build Dockerfile từ repo; backend .NET dùng Docker runtime.
 
 ## 2. Database đã có schema hoặc database trống mới
 
-Bản live AS2 đã có đủ sáu bảng và dữ liệu. Chỉ redeploy code; không chạy setup lại. Hai script SQL trước đây đã bỏ khỏi repo để giữ backend gọn như AS1. Bản lịch sử nằm trong Git và bản sao private ngoài repo.
+Bản live AS2 đã có đủ sáu bảng và dữ liệu. Bản bổ sung refresh token/profile/audit dùng `dotnet TaskTrack.API.dll --upgrade-db` trước khi deploy code mới. Lệnh chỉ thêm cột/index/FK, chạy trong transaction và lặp lại được; không khởi tạo lại hoặc seed lại dữ liệu. Ngày 13/10 đã nâng cấp database AS2 local và production, đối chiếu checksum xác nhận dữ liệu cũ AS2 và AS1 giữ nguyên. Hai script SQL trước đây đã bỏ khỏi repo để giữ backend gọn như AS1.
 
 Nếu tạo một database AS2 mới, tạo database trống bằng công cụ PostgreSQL/Render trước, đặt tên kết thúc bằng `_ass2`, rồi cấu hình riêng:
 

@@ -148,7 +148,7 @@ public class ApiIntegrationTests : IAsyncLifetime
         Assert.Equal(staff.GetProperty("account").GetProperty("email").GetString(), claims.GetProperty("Email").GetString());
         Assert.Equal("Staff", claims.GetProperty("Role").GetString());
         var expiry = claims.GetProperty("exp").GetInt64();
-        Assert.InRange(expiry, DateTimeOffset.UtcNow.ToUnixTimeSeconds() + 1, DateTimeOffset.UtcNow.AddDays(1).ToUnixTimeSeconds() + 1);
+        Assert.InRange(expiry, DateTimeOffset.UtcNow.AddMinutes(14).ToUnixTimeSeconds(), DateTimeOffset.UtcNow.AddMinutes(15).ToUnixTimeSeconds() + 1);
         Assert.False(staff.GetProperty("account").TryGetProperty("passwordHash", out _));
         await RequestAsync("/auth/me", token: StaffToken);
         await RequestAsync("/auth/me", token: parts[0] + "." + parts[1] + ".invalid-signature", status: 401);
@@ -221,6 +221,7 @@ public class ApiIntegrationTests : IAsyncLifetime
         Assert.Equal(account.GetProperty("fullName").GetString(), promoted.GetProperty("fullName").GetString());
         Assert.Equal(account.GetProperty("email").GetString(), promoted.GetProperty("email").GetString());
         await RequestAsync("/auth/me", token: old.GetProperty("token").GetString(), status: 401);
+        await RequestAsync("/auth/refresh", "POST", new { refreshToken = old.GetProperty("refreshToken").GetString() }, status: 401);
         var renamed = await RequestAsync("/accounts/" + accountId, "PUT", new { fullName = prefix + " renamed" }, AdminToken);
         Assert.Equal(1, renamed.GetProperty("role").GetInt32());
         await RequestAsync("/accounts/" + accountId, "PUT", new { }, AdminToken, 400);
@@ -303,6 +304,118 @@ public class ApiIntegrationTests : IAsyncLifetime
         if (string.IsNullOrEmpty(text)) return default;
         using var document = JsonDocument.Parse(text);
         return document.RootElement.Clone();
+    }
+
+    [Fact]
+    public async Task RefreshRotatesHashedTokensAndReplayRevokesTheFamily()
+    {
+        var account = await RegisterAsync(prefix + "refresh@example.com");
+        var session = await LoginAsync(account.GetProperty("email").GetString()!, "TestPassword123!");
+        var refresh = session.GetProperty("refreshToken").GetString()!;
+        var id = account.GetProperty("accountId").GetInt32();
+        Assert.Equal(Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(refresh))), await SqlAsync("SELECT \"RefreshTokenHash\" FROM \"SystemAccount\" WHERE \"AccountID\"=$1", new NpgsqlParameter { Value = id }));
+        await RequestAsync("/auth/me", token: refresh, status: 401);
+        await RequestAsync("/auth/refresh", "POST", new { refreshToken = session.GetProperty("token").GetString() }, status: 401);
+        var next = await RequestAsync("/auth/refresh", "POST", new { refreshToken = refresh });
+        Assert.NotEqual(refresh, next.GetProperty("refreshToken").GetString());
+        Assert.False(next.GetProperty("account").TryGetProperty("refreshTokenHash", out _));
+        await RequestAsync("/auth/me", token: next.GetProperty("token").GetString());
+        await RequestAsync("/auth/refresh", "POST", new { refreshToken = refresh }, status: 401);
+        await RequestAsync("/auth/me", token: next.GetProperty("token").GetString(), status: 401);
+        await RequestAsync("/auth/refresh", "POST", new { refreshToken = next.GetProperty("refreshToken").GetString() }, status: 401);
+        Assert.IsType<DBNull>(await SqlAsync("SELECT \"RefreshTokenHash\" FROM \"SystemAccount\" WHERE \"AccountID\"=$1", new NpgsqlParameter { Value = id }));
+    }
+
+    [Fact]
+    public async Task ConcurrentRefreshDetectsReuseAndInvalidatesTheWinner()
+    {
+        var account = await RegisterAsync(prefix + "parallel@example.com");
+        var session = await LoginAsync(account.GetProperty("email").GetString()!, "TestPassword123!");
+        var responses = await Task.WhenAll(Enumerable.Range(0, 2).Select(_ => client.PostAsJsonAsync("auth/refresh", new { refreshToken = session.GetProperty("refreshToken").GetString() })));
+        try
+        {
+            Assert.Equal(new[] { 200, 401 }, responses.Select(x => (int)x.StatusCode).Order());
+            var winner = (await responses.Single(x => x.IsSuccessStatusCode).Content.ReadFromJsonAsync<JsonElement>());
+            await RequestAsync("/auth/me", token: winner.GetProperty("token").GetString(), status: 401);
+            await RequestAsync("/auth/refresh", "POST", new { refreshToken = winner.GetProperty("refreshToken").GetString() }, status: 401);
+        }
+        finally { foreach (var response in responses) response.Dispose(); }
+    }
+
+    [Fact]
+    public async Task NewLoginReplacesRefreshSessionAndLogoutRevokesCurrentAccess()
+    {
+        var account = await RegisterAsync(prefix + "logout@example.com");
+        var email = account.GetProperty("email").GetString()!;
+        var previous = await LoginAsync(email, "TestPassword123!");
+        var current = await LoginAsync(email, "TestPassword123!");
+        await RequestAsync("/auth/refresh", "POST", new { refreshToken = previous.GetProperty("refreshToken").GetString() }, status: 401);
+        await RequestAsync("/auth/logout", "POST", new { refreshToken = previous.GetProperty("refreshToken").GetString() }, status: 204);
+        await RequestAsync("/auth/me", token: current.GetProperty("token").GetString());
+        await RequestAsync("/auth/logout", "POST", new { refreshToken = current.GetProperty("refreshToken").GetString() }, status: 204);
+        await RequestAsync("/auth/logout", "POST", new { refreshToken = current.GetProperty("refreshToken").GetString() }, status: 204);
+        await RequestAsync("/auth/me", token: current.GetProperty("token").GetString(), status: 401);
+        await RequestAsync("/auth/refresh", "POST", new { refreshToken = current.GetProperty("refreshToken").GetString() }, status: 401);
+    }
+
+    [Fact]
+    public async Task RefreshRejectsTamperingExpiryAndInvalidBodiesWithoutLeakingSecrets()
+    {
+        var account = await RegisterAsync(prefix + "expiry@example.com");
+        var session = await LoginAsync(account.GetProperty("email").GetString()!, "TestPassword123!");
+        var refresh = session.GetProperty("refreshToken").GetString()!;
+        var parts = refresh.Split('.');
+        await RequestAsync("/auth/refresh", "POST", new { refreshToken = parts[0] + "." + parts[1] + ".invalid-signature" }, status: 401);
+        await RequestAsync("/auth/refresh", "POST", new { refreshToken = "" }, status: 400);
+        await RequestAsync("/auth/refresh", "POST", new { refreshToken = new string('x', 2049) }, status: 400);
+        var next = await RequestAsync("/auth/refresh", "POST", new { refreshToken = refresh });
+        await SqlAsync("UPDATE \"SystemAccount\" SET \"RefreshTokenExpiresAt\"=CURRENT_TIMESTAMP-INTERVAL '1 second' WHERE \"AccountID\"=$1", new NpgsqlParameter { Value = account.GetProperty("accountId").GetInt32() });
+        await RequestAsync("/auth/refresh", "POST", new { refreshToken = next.GetProperty("refreshToken").GetString() }, status: 401);
+        using var claims = JsonDocument.Parse(DecodeBase64Url(parts[1]));
+        Assert.InRange(claims.RootElement.GetProperty("exp").GetInt64(), DateTimeOffset.UtcNow.AddDays(7).ToUnixTimeSeconds() - 30, DateTimeOffset.UtcNow.AddDays(7).ToUnixTimeSeconds() + 1);
+    }
+
+    [Fact]
+    public async Task ProfileAllowsOnlyOwnNameAndVerifiedPasswordAndRevokesOldSessions()
+    {
+        var account = await RegisterAsync(prefix + "profile@example.com");
+        var email = account.GetProperty("email").GetString()!;
+        var session = await LoginAsync(email, "TestPassword123!");
+        var token = session.GetProperty("token").GetString()!;
+        await RequestAsync("/auth/profile", "PUT", new { fullName = "Blocked" }, status: 401);
+        await RequestAsync("/auth/profile", "PUT", new { }, token, 400);
+        await RequestAsync("/auth/profile", "PUT", new { fullName = " " }, token, 400);
+        await RequestAsync("/auth/profile", "PUT", new { newPassword = "short", currentPassword = "TestPassword123!" }, token, 400);
+        await RequestAsync("/auth/profile", "PUT", new { newPassword = "ChangedPassword123!", currentPassword = "wrong" }, token, 400);
+        var renamed = await RequestAsync("/auth/profile", "PUT", new { fullName = "  " + prefix + " renamed  ", role = 1, email = "ignored@example.com", accountId = 1 }, token);
+        Assert.Equal(prefix + " renamed", renamed.GetProperty("fullName").GetString());
+        Assert.Equal(0, renamed.GetProperty("role").GetInt32());
+        Assert.Equal(email, renamed.GetProperty("email").GetString());
+        var changed = await RequestAsync("/auth/profile", "PUT", new { newPassword = "ChangedPassword123!", currentPassword = "TestPassword123!" }, token);
+        Assert.False(changed.TryGetProperty("passwordHash", out _));
+        await RequestAsync("/auth/me", token: token, status: 401);
+        await RequestAsync("/auth/refresh", "POST", new { refreshToken = session.GetProperty("refreshToken").GetString() }, status: 401);
+        await RequestAsync("/auth/login", "POST", new { email, password = "TestPassword123!" }, status: 401);
+        var signedIn = await LoginAsync(email, "ChangedPassword123!");
+        Assert.Equal(prefix + " renamed", signedIn.GetProperty("account").GetProperty("fullName").GetString());
+    }
+
+    [Fact]
+    public async Task TaskAuditUsesJwtActorPreservesCreatorAndTracksSoftDelete()
+    {
+        var work = await CreateWorkAsync();
+        var editor = await RegisterAsync(prefix + "editor@example.com");
+        var session = await LoginAsync(editor.GetProperty("email").GetString()!, "TestPassword123!");
+        var editorId = editor.GetProperty("accountId").GetInt32();
+        var updated = await RequestAsync("/tasks/" + work.TaskId, "PUT", new { title = prefix, projectId = work.ProjectId, updatedById = 1, createdById = editorId }, session.GetProperty("token").GetString());
+        Assert.Equal(work.OwnerId, updated.GetProperty("createdById").GetInt32());
+        Assert.Equal(editorId, updated.GetProperty("updatedById").GetInt32());
+        Assert.InRange(updated.GetProperty("modifiedDate").GetDateTime(), DateTime.UtcNow.AddMinutes(-1), DateTime.UtcNow.AddSeconds(1));
+        await RequestAsync("/accounts/" + editorId, "DELETE", token: AdminToken, status: 204);
+        Assert.Equal(JsonValueKind.Null, (await RequestAsync("/tasks/" + work.TaskId)).GetProperty("updatedById").ValueKind);
+        await RequestAsync("/tasks/" + work.TaskId, "DELETE", token: AdminToken, status: 204);
+        Assert.Equal(admin.GetProperty("account").GetProperty("accountId").GetInt32(), Convert.ToInt32(await SqlAsync("SELECT \"UpdatedByID\" FROM \"Task\" WHERE \"TaskID\"=$1", new NpgsqlParameter { Value = work.TaskId })));
+        Assert.Equal(work.OwnerId, Convert.ToInt32(await SqlAsync("SELECT \"CreatedByID\" FROM \"Task\" WHERE \"TaskID\"=$1", new NpgsqlParameter { Value = work.TaskId })));
     }
 
     private Task<JsonElement> LoginAsync(string email, string password) => RequestAsync("/auth/login", "POST", new { email, password });

@@ -30,12 +30,22 @@ public class AccountService(AccountRepository repo, IPasswordHasher<SystemAccoun
 
     public async Task<AccountResponse> UpdateAsync(int id, AccountUpdateRequest request, CancellationToken ct)
     {
-        var account = await repo.FindAsync(id, ct) ?? throw new KeyNotFoundException("Account not found.");
         if (request.FullName is null && request.Role is null) throw new InvalidOperationException("Provide a full name or role.");
-        if (request.FullName is not null) account.FullName = Name(request.FullName);
-        if (request.Role is not null) account.Role = request.Role.Value;
-        await repo.SaveAsync(ct);
-        return Map(account);
+        if (await repo.UpdateAsync(id, request.FullName is null ? null : Name(request.FullName), request.Role, ct) == 0) throw new KeyNotFoundException("Account not found.");
+        return Map((await repo.ReadAsync(id, ct))!);
+    }
+
+    public async Task<AccountResponse> UpdateProfileAsync(int id, ProfileRequest request, CancellationToken ct)
+    {
+        if (request.FullName is null && request.NewPassword is null) throw new InvalidOperationException("Provide a full name or new password.");
+        var name = request.FullName is null ? null : Name(request.FullName);
+        if (request.NewPassword is null) return await UpdateAsync(id, new AccountUpdateRequest { FullName = name }, ct);
+        var account = await repo.ReadAsync(id, ct) ?? throw new KeyNotFoundException("Account not found.");
+        if (string.IsNullOrEmpty(request.CurrentPassword) || hasher.VerifyHashedPassword(account, account.PasswordHash, request.CurrentPassword) == PasswordVerificationResult.Failed)
+            throw new InvalidOperationException("Current password is incorrect.");
+        var hash = hasher.HashPassword(account, request.NewPassword);
+        if (await repo.ChangePasswordAsync(id, account.PasswordHash, hash, name, ct) == 0) throw new InvalidOperationException("Password changed in another request. Try again.");
+        return Map((await repo.ReadAsync(id, ct))!);
     }
 
     public async Task DeleteAsync(int id, CancellationToken ct)
@@ -63,7 +73,7 @@ public class AccountService(AccountRepository repo, IPasswordHasher<SystemAccoun
     }
 
     private static string Name(string value) => value.Trim().Length > 0 ? value.Trim() : throw new InvalidOperationException("Full name is required.");
-    private static AccountResponse Map(SystemAccount account) => new(account.AccountId, account.FullName, account.Email, account.Role, account.CreatedDate);
+    public static AccountResponse Map(SystemAccount account) => new(account.AccountId, account.FullName, account.Email, account.Role, account.CreatedDate);
 }
 
 public class AccountConflictException(string message) : InvalidOperationException(message);

@@ -30,8 +30,8 @@ public interface ITaskService
     Task<IReadOnlyList<TaskResponse>> GetByProjectAsync(int projectId, CancellationToken ct);
     Task<IReadOnlyList<TaskResponse>> SearchAsync(string? title, short? status, short? priority, int? projectId, int? tagId, CancellationToken ct);
     Task<TaskResponse> CreateAsync(TaskRequest request, int accountId, CancellationToken ct);
-    Task<TaskResponse> UpdateAsync(int id, TaskRequest request, CancellationToken ct);
-    Task DeleteAsync(int id, CancellationToken ct);
+    Task<TaskResponse> UpdateAsync(int id, TaskRequest request, int accountId, CancellationToken ct);
+    Task DeleteAsync(int id, int accountId, CancellationToken ct);
 }
 
 public interface ITagService

@@ -13,6 +13,6 @@ public class TasksController(ITaskService service) : ApiControllerBase
     [HttpGet("project/{projectId:int}")] public Task<ActionResult<IReadOnlyList<TaskResponse>>> ByProject(int projectId, CancellationToken ct) => Run(() => service.GetByProjectAsync(projectId, ct));
     [HttpGet("{id:int}")] public Task<ActionResult<TaskResponse>> GetById(int id, CancellationToken ct) => Run(() => service.GetByIdAsync(id, ct));
     [Authorize, HttpPost] public Task<ActionResult<TaskResponse>> Create(TaskRequest request, CancellationToken ct) => Run(() => service.CreateAsync(request, int.Parse(User.FindFirst("AccountID")!.Value), ct));
-    [Authorize, HttpPut("{id:int}")] public Task<ActionResult<TaskResponse>> Update(int id, TaskRequest request, CancellationToken ct) => Run(() => service.UpdateAsync(id, request, ct));
-    [Authorize, HttpDelete("{id:int}")] public Task<IActionResult> Delete(int id, CancellationToken ct) => Run(() => service.DeleteAsync(id, ct));
+    [Authorize, HttpPut("{id:int}")] public Task<ActionResult<TaskResponse>> Update(int id, TaskRequest request, CancellationToken ct) => Run(() => service.UpdateAsync(id, request, int.Parse(User.FindFirst("AccountID")!.Value), ct));
+    [Authorize, HttpDelete("{id:int}")] public Task<IActionResult> Delete(int id, CancellationToken ct) => Run(() => service.DeleteAsync(id, int.Parse(User.FindFirst("AccountID")!.Value), ct));
 }

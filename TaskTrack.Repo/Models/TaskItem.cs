@@ -11,6 +11,8 @@ public class TaskItem
     public int ProjectId { get; set; }
     public int? CreatedById { get; set; }
     public SystemAccount? CreatedBy { get; set; }
+    public int? UpdatedById { get; set; }
+    public SystemAccount? UpdatedBy { get; set; }
     public bool IsActive { get; set; } = true;
     public DateTime CreatedDate { get; set; }
     public DateTime? ModifiedDate { get; set; }

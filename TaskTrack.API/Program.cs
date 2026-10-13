@@ -43,16 +43,16 @@ builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme).AddJw
     {
         ValidateIssuerSigningKey = true, IssuerSigningKey = jwtKey,
         ValidateIssuer = true, ValidIssuer = TokenIssuer.Issuer, ValidateAudience = true, ValidAudience = TokenIssuer.Audience,
-        ValidateLifetime = true, RequireExpirationTime = true, ClockSkew = TimeSpan.Zero, RoleClaimType = "Role", NameClaimType = "FullName"
+        ValidateLifetime = true, RequireExpirationTime = true, ValidAlgorithms = [SecurityAlgorithms.HmacSha256], ClockSkew = TimeSpan.Zero, RoleClaimType = "Role", NameClaimType = "FullName"
     };
     options.Events = new JwtBearerEvents
     {
         OnTokenValidated = async context =>
         {
-            if (!int.TryParse(context.Principal?.FindFirstValue("AccountID"), out var id)) { context.Fail("Invalid account."); return; }
+            if (!int.TryParse(context.Principal?.FindFirstValue("AccountID"), out var id) || !int.TryParse(context.Principal?.FindFirstValue("TokenVersion"), out var version)) { context.Fail("Invalid account."); return; }
             var repo = context.HttpContext.RequestServices.GetRequiredService<AccountRepository>();
             var account = await repo.FindAsync(id, context.HttpContext.RequestAborted);
-            if (account is null || TokenIssuer.RoleName(account.Role) != context.Principal?.FindFirstValue("Role")) context.Fail("Account or role changed. Sign in again.");
+            if (account is null || account.TokenVersion != version || TokenIssuer.RoleName(account.Role) != context.Principal?.FindFirstValue("Role")) context.Fail("Account or session changed. Sign in again.");
         }
     };
 });
@@ -61,7 +61,7 @@ var origins = (builder.Configuration["CORS_ORIGINS"] ?? "http://localhost:3012")
 builder.Services.AddCors(options => options.AddPolicy("frontend", policy => policy.WithOrigins(origins).AllowAnyHeader().AllowAnyMethod()));
 
 var app = builder.Build();
-// shortcut: initialize empty databases only; add EF migrations when future schema upgrades are needed.
+// shortcut: two explicit AS2 schema versions; use EF migrations when more upgrades are needed.
 if (args.Contains("--init-db"))
 {
     using var scope = app.Services.CreateScope();
@@ -76,6 +76,26 @@ if (args.Contains("--init-db"))
     await db.Database.ExecuteSqlRawAsync("CREATE UNIQUE INDEX \"UX_SystemAccount_Email\" ON \"SystemAccount\" (LOWER(BTRIM(\"Email\"))); CREATE UNIQUE INDEX \"UX_Tag_Name_Normalized\" ON \"Tag\" (LOWER(BTRIM(\"TagName\")));");
     await transaction.CommitAsync();
     Console.WriteLine("Empty AS2 database initialized from the EF Core model. No sample data was inserted.");
+    return;
+}
+if (args.Contains("--upgrade-db"))
+{
+    using var scope = app.Services.CreateScope();
+    var db = scope.ServiceProvider.GetRequiredService<TaskManagementDbContext>();
+    if (!db.Database.GetDbConnection().Database.EndsWith("_ass2", StringComparison.Ordinal)) throw new InvalidOperationException("Upgrade only a separate AS2 database whose name ends with _ass2.");
+    await using var transaction = await db.Database.BeginTransactionAsync();
+    await db.Database.ExecuteSqlRawAsync("""
+        ALTER TABLE "SystemAccount" ADD COLUMN IF NOT EXISTS "TokenVersion" integer NOT NULL DEFAULT 0,
+            ADD COLUMN IF NOT EXISTS "RefreshTokenHash" character varying(64),
+            ADD COLUMN IF NOT EXISTS "RefreshTokenExpiresAt" timestamp with time zone,
+            ADD COLUMN IF NOT EXISTS "RefreshTokenFamilyId" uuid;
+        ALTER TABLE "Task" ADD COLUMN IF NOT EXISTS "UpdatedByID" integer;
+        CREATE INDEX IF NOT EXISTS "IX_Task_UpdatedByID" ON "Task" ("UpdatedByID");
+        """);
+    var exists = await db.Database.SqlQueryRaw<int>("SELECT COUNT(*)::integer AS \"Value\" FROM pg_constraint WHERE conrelid = '\"Task\"'::regclass AND conname = 'FK_Task_UpdatedBy'").SingleAsync();
+    if (exists == 0) await db.Database.ExecuteSqlRawAsync("ALTER TABLE \"Task\" ADD CONSTRAINT \"FK_Task_UpdatedBy\" FOREIGN KEY (\"UpdatedByID\") REFERENCES \"SystemAccount\" (\"AccountID\") ON DELETE SET NULL");
+    await transaction.CommitAsync();
+    Console.WriteLine("AS2 schema upgraded. Existing records were preserved.");
     return;
 }
 if (args.Contains("--seed-admin"))

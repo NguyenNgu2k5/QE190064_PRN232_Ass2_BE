@@ -33,21 +33,21 @@ public class TaskService(TaskRepository repo, ProjectRepository projects) : ITas
         await repo.AddAsync(item, ct); await repo.SaveAsync(ct); return await GetByIdAsync(item.TaskId, ct);
     }
 
-    public async Task<TaskResponse> UpdateAsync(int id, TaskRequest request, CancellationToken ct)
+    public async Task<TaskResponse> UpdateAsync(int id, TaskRequest request, int accountId, CancellationToken ct)
     {
         var item = await repo.FindTrackedAsync(id, ct) ?? throw new KeyNotFoundException("Task not found.");
         if (request.Title.Trim().Length == 0) throw new InvalidOperationException("Title is required.");
         if (!await projects.ExistsAsync(request.ProjectId, ct)) throw new InvalidOperationException("Project does not exist.");
         var tagIds = await ValidateTagIdsAsync(request.TagIds, ct);
-        item.Title = request.Title.Trim(); item.Description = request.Description?.Trim(); item.Status = request.Status; item.Priority = request.Priority; item.DueDate = request.DueDate; item.ProjectId = request.ProjectId; item.ModifiedDate = DateTime.UtcNow;
+        item.Title = request.Title.Trim(); item.Description = request.Description?.Trim(); item.Status = request.Status; item.Priority = request.Priority; item.DueDate = request.DueDate; item.ProjectId = request.ProjectId; item.ModifiedDate = DateTime.UtcNow; item.UpdatedById = accountId;
         repo.ReplaceTags(item, tagIds);
         await repo.SaveAsync(ct); return await GetByIdAsync(id, ct);
     }
 
-    public async Task DeleteAsync(int id, CancellationToken ct)
+    public async Task DeleteAsync(int id, int accountId, CancellationToken ct)
     {
         var item = await repo.FindTrackedAsync(id, ct) ?? throw new KeyNotFoundException("Task not found.");
-        item.IsActive = false; item.ModifiedDate = DateTime.UtcNow; await repo.SaveAsync(ct);
+        item.IsActive = false; item.ModifiedDate = DateTime.UtcNow; item.UpdatedById = accountId; await repo.SaveAsync(ct);
     }
 
     private async Task<List<int>> ValidateTagIdsAsync(IEnumerable<int> requestedIds, CancellationToken ct)
@@ -59,5 +59,5 @@ public class TaskService(TaskRepository repo, ProjectRepository projects) : ITas
         return ids;
     }
 
-    private static TaskResponse Map(TaskItem x) => new(x.TaskId, x.Title, x.Description, x.Status, x.Priority, x.DueDate, x.ProjectId, x.Project?.ProjectName ?? string.Empty, x.Project?.Department?.DepartmentName ?? string.Empty, x.IsActive, x.CreatedDate, x.ModifiedDate, x.TaskTags.Select(link => new TagResponse(link.TagId, link.Tag?.TagName ?? string.Empty, link.Tag?.Color)).ToList());
+    private static TaskResponse Map(TaskItem x) => new(x.TaskId, x.Title, x.Description, x.Status, x.Priority, x.DueDate, x.ProjectId, x.Project?.ProjectName ?? string.Empty, x.Project?.Department?.DepartmentName ?? string.Empty, x.IsActive, x.CreatedDate, x.ModifiedDate, x.TaskTags.Select(link => new TagResponse(link.TagId, link.Tag?.TagName ?? string.Empty, link.Tag?.Color)).ToList(), x.CreatedById, x.UpdatedById);
 }

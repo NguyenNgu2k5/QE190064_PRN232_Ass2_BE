@@ -48,6 +48,8 @@ jobs:
           dotnet "$api_dll" --init-db
           dotnet "$api_dll" --seed-admin
           dotnet "$api_dll" --seed-admin
+          dotnet "$api_dll" --upgrade-db
+          dotnet "$api_dll" --upgrade-db
           dotnet "$api_dll" --urls http://127.0.0.1:5102 > api-test.log 2>&1 &
           api_pid=$!
           trap 'kill "$api_pid"' EXIT

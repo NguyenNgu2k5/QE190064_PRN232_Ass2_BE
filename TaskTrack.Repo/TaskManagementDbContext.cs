@@ -53,6 +53,8 @@ public class TaskManagementDbContext(DbContextOptions<TaskManagementDbContext> o
             entity.Property(x => x.ProjectId).HasColumnName("ProjectID");
             entity.Property(x => x.CreatedById).HasColumnName("CreatedByID");
             entity.HasOne(x => x.CreatedBy).WithMany(x => x.CreatedTasks).HasForeignKey(x => x.CreatedById).OnDelete(DeleteBehavior.Restrict).HasConstraintName("FK_Task_CreatedBy");
+            entity.Property(x => x.UpdatedById).HasColumnName("UpdatedByID");
+            entity.HasOne(x => x.UpdatedBy).WithMany().HasForeignKey(x => x.UpdatedById).OnDelete(DeleteBehavior.SetNull).HasConstraintName("FK_Task_UpdatedBy");
             entity.Property(x => x.IsActive).HasColumnName("IsActive").HasDefaultValue(true);
             entity.Property(x => x.CreatedDate).HasColumnName("CreatedDate").HasDefaultValueSql("CURRENT_TIMESTAMP");
             entity.Property(x => x.ModifiedDate).HasColumnName("ModifiedDate");
@@ -77,6 +79,8 @@ public class TaskManagementDbContext(DbContextOptions<TaskManagementDbContext> o
             entity.Property(x => x.FullName).HasMaxLength(100).IsRequired();
             entity.Property(x => x.Email).HasMaxLength(254).IsRequired();
             entity.Property(x => x.PasswordHash).IsRequired();
+            entity.Property(x => x.TokenVersion).HasDefaultValue(0);
+            entity.Property(x => x.RefreshTokenHash).HasMaxLength(64);
             entity.Property(x => x.Role).HasDefaultValue((short)0);
             entity.Property(x => x.CreatedDate).HasDefaultValueSql("CURRENT_TIMESTAMP");
             entity.HasIndex(x => x.Email).IsUnique();
